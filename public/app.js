@@ -12,19 +12,29 @@ const viewGame = el("viewGame");
 // Home actions
 const nameInput = el("name");
 const codeInput = el("code");
+
 el("create").onclick = () => {
   const name = nameInput.value.trim();
   if (!name) return alert("Enter your name");
   socket.emit("room:create", { name }, (res) => {
-    if (!res.ok) alert(res.error);
+    if (!res || !res.ok) {
+      alert(res?.error || "Create failed");
+      return;
+    }
+    // Rely on server "room:update" → render(state) to switch views
   });
 };
+
 el("join").onclick = () => {
   const name = nameInput.value.trim();
   const code = codeInput.value.trim().toUpperCase();
   if (!name || !code) return alert("Enter name and room code");
   socket.emit("room:join", { code, name }, (res) => {
-    if (!res || !res.ok) return alert(res?.error || "Join failed");
+    if (!res || !res.ok) {
+      alert(res?.error || "Join failed");
+      return;
+    }
+    // Rely on server "room:update" → render(state) to switch views
   });
 };
 
@@ -262,6 +272,56 @@ function parseCard(card) {
   return { rank, suit };
 }
 
+/* ---------- Helpers to keep rendering clean ---------- */
+function isYourTurn(state) {
+  return (
+    state.phase === "playing" && state.you && state.turn === state.you.seat
+  );
+}
+
+function suitClass(card) {
+  const s = parseCard(card).suit;
+  return s === "♠"
+    ? "s-spade"
+    : s === "♥"
+    ? "s-heart"
+    : s === "♦"
+    ? "s-diamond"
+    : s === "♣"
+    ? "s-club"
+    : "";
+}
+
+/* Renders your hand with neutral (black) borders by default.
+   During PLAYING and on *your* turn, legal cards get `.forced` (green border). */
+function renderHand(state) {
+  handEl.innerHTML = "";
+  const you = state.you || {};
+  const hand = you.hand || [];
+
+  const highlight = isYourTurn(state);
+
+  hand.forEach((card) => {
+    const b = document.createElement("button");
+    b.textContent = card;
+    b.className = "card-btn";
+    const sc = suitClass(card);
+    if (sc) b.classList.add(sc);
+
+    if (
+      highlight &&
+      typeof legalForYou === "function" &&
+      legalForYou(card, state)
+    ) {
+      b.classList.add("forced"); // green border only for playable cards on your turn
+    }
+
+    b.onclick = () => socket.emit("play:card", { card });
+    handEl.appendChild(b);
+  });
+}
+
+/* ------------------ Main render ------------------ */
 function render(state) {
   // Lobby
   if (state.phase === "room") {
@@ -308,18 +368,13 @@ function render(state) {
 
     // Hide/show bidding panel
     panelBidding.classList.toggle("hidden", state.phase !== "bidding");
+
     // Coinche/Surcoinche dynamic label
     if (state.bidding?.coincheBy) {
       // Coinche already called
       coincheBtn.textContent = "Surcoinche";
       coincheBtn.dataset.state = "surcoinche";
-
-      // Only the next player can surcoinche, others just see disabled button
-      if (state.turn === state.you?.seat) {
-        coincheBtn.disabled = false;
-      } else {
-        coincheBtn.disabled = true;
-      }
+      coincheBtn.disabled = state.turn !== state.you?.seat;
     } else {
       // No coinche yet → show Coinche
       coincheBtn.textContent = "Coinche";
@@ -362,25 +417,8 @@ function render(state) {
     // Seats / trick
     paintSeated(state.players || [], state.turn, state.currentTrick);
 
-    // Hand
-    handEl.innerHTML = "";
-    const you = state.you || {};
-    (you.hand || []).forEach((card) => {
-      const b = document.createElement("button");
-      b.textContent = card;
-      b.className = "card-btn";
-      if (legalForYou(card, state)) b.classList.add("legal");
-      else b.classList.add("illegal");
-      const suitMap = {
-        "♠": "s-spade",
-        "♥": "s-heart",
-        "♦": "s-diamond",
-        "♣": "s-club",
-      };
-      b.classList.add(suitMap[parseCard(card).suit] || "");
-      b.onclick = () => socket.emit("play:card", { card });
-      handEl.appendChild(b);
-    });
+    // Hand (centralized)
+    renderHand(state);
 
     // Right column values
     renderCardValuesRight();
@@ -395,3 +433,4 @@ function render(state) {
 
 socket.on("room:update", render);
 socket.on("connect", () => console.log("Connected:", socket.id));
+socket.on("disconnect", () => console.log("Disconnected"));
