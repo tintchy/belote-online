@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Belote Online</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <script defer src="app.js"></script>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+      }
+      .hidden {
+        display: none;
+      }
+      button {
+        cursor: pointer;
+      }
+
+      /* 3-column game layout */
+      #gameLayout {
+        display: grid;
+        grid-template-columns: 260px 1fr 320px;
+        gap: 16px;
+      }
+
+      .panel {
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 10px;
+        background: #fff;
+        margin-bottom: 10px;
+      }
+      .panel h3 {
+        margin: 0 0 8px;
+        font-size: 15px;
+      }
+
+      /* Status */
+      #statusLeft {
+        background: #fafafa;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        padding: 8px;
+        font-weight: 500;
+      }
+
+      /* Table layout */
+      /* Table layout (centered with explicit grid areas) */
+      #tableArea {
+        display: grid;
+        place-items: center;
+        min-height: 360px;
+      }
+      #tableGrid {
+        display: grid;
+        grid-template-areas:
+          ".    top    ."
+          "left center right"
+          ".    bottom .";
+        grid-template-columns: 1fr auto 1fr;
+        grid-template-rows: 1fr auto 1fr;
+        gap: 24px;
+        place-items: center;
+      }
+      #tableCenter {
+        grid-area: center;
+      }
+      #g1 {
+        grid-area: top;
+      }
+      #g0 {
+        grid-area: left;
+      }
+      #g2 {
+        grid-area: right;
+      }
+      #g3 {
+        grid-area: bottom;
+      }
+
+      .seat {
+        border: 1px dashed #ddd;
+        border-radius: 8px;
+        padding: 8px 12px;
+        text-align: center;
+      }
+      .teamA {
+        background: #f6fafb;
+      }
+      .teamB {
+        background: #fbf6fa;
+      }
+      .turn {
+        box-shadow: 0 0 0 2px #333 inset;
+        font-weight: 700;
+      }
+      .played {
+        display: block;
+        opacity: 0.7;
+      }
+
+      /* Hand */
+      #hand {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .card-btn {
+        padding: 8px 10px;
+        border-radius: 6px;
+        border: 1px solid #ddd;
+        background: #fff;
+      }
+      .card-btn.legal {
+        font-weight: bold;
+        outline: 2px solid #000;
+      }
+      .card-btn.illegal {
+        opacity: 0.45;
+      }
+      /* Suit colors */
+      .card-btn.s-spade {
+        color: #000;
+      } /* black */
+      .card-btn.s-heart {
+        color: #d00;
+      } /* red */
+      .card-btn.s-diamond {
+        color: #06c;
+      } /* blue */
+      .card-btn.s-club {
+        color: #0a0;
+      } /* green */
+
+      /* Card values table (right column) */
+      #cardValues .vals {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      #cardValues th,
+      #cardValues td {
+        padding: 4px 6px;
+        border-bottom: 1px solid #eee;
+      }
+      #cardValues .note {
+        margin-top: 6px;
+        font-size: 12px;
+        color: #666;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- HOME -->
+    <div id="viewHome">
+      <h2>Welcome to Belote</h2>
+      <input id="name" placeholder="Your name" /> <br /><br />
+      <button id="create">Create Room</button>
+      <hr />
+      <input id="code" placeholder="Room code" maxlength="4" />
+      <button id="join">Join Room</button>
+    </div>
+
+    <!-- LOBBY -->
+    <div id="viewRoom" class="hidden">
+      <h2>Lobby</h2>
+      <div id="roomCode"></div>
+      <div id="lobbyList"></div>
+      <button id="teamA">Join Team A</button>
+      <button id="teamB">Join Team B</button>
+      <button id="ready">Ready</button>
+    </div>
+
+    <!-- GAME -->
+    <div id="viewGame" class="hidden">
+      <h2>Game</h2>
+
+      <div id="gameLayout">
+        <!-- LEFT COLUMN -->
+        <div>
+          <div class="panel">
+            <h3>Scoreboard (Total)</h3>
+            <div id="scoreTotal"></div>
+            <hr />
+            <h3>Current Round Score</h3>
+            <div id="currentRound">Team A: 0 — Team B: 0</div>
+            <hr />
+            <h3>Per-Hand Totals</h3>
+            <div id="scoreRounds"></div>
+          </div>
+
+          <div class="panel">
+            <h3>Activity</h3>
+            <div
+              id="activityLog"
+              style="max-height: 240px; overflow: auto"
+            ></div>
+          </div>
+        </div>
+
+        <!-- MIDDLE COLUMN -->
+        <div>
+          <div class="panel">
+            <h3>Status</h3>
+            <div id="statusLeft">Status...</div>
+          </div>
+
+          <div class="panel" id="panelBidding">
+            <h3>Bidding</h3>
+            <input id="bidValue" type="number" value="60" min="60" step="10" />
+            <select id="bidKind">
+              <option value="♠">Spades (♠)</option>
+              <option value="♥">Hearts (♥)</option>
+              <option value="♦">Diamonds (♦)</option>
+              <option value="♣">Clubs (♣)</option>
+              <option value="ALL_TRUMP">All Trump</option>
+              <option value="NO_TRUMP">No Trump</option>
+            </select>
+            <button id="placeBid">Place / Raise</button>
+            <button id="passBid">Pass</button>
+            <button id="coinche">Coinche</button>
+          </div>
+
+          <div class="panel">
+            <h3>Table</h3>
+            <div id="tableArea">
+              <div id="tableGrid">
+                <div class="seat" id="g1">
+                  <span class="name">—</span><br /><span class="played">—</span>
+                </div>
+                <div class="seat" id="g0">
+                  <span class="name">—</span><br /><span class="played">—</span>
+                </div>
+                <div
+                  id="tableCenter"
+                  style="
+                    border: 1px dashed #ddd;
+                    border-radius: 12px;
+                    width: 260px;
+                    height: 180px;
+                    display: grid;
+                    place-items: center;
+                    color: #666;
+                  "
+                >
+                  Table
+                </div>
+                <div class="seat" id="g2">
+                  <span class="name">—</span><br /><span class="played">—</span>
+                </div>
+                <div class="seat" id="g3">
+                  <span class="name">—</span><br /><span class="played">—</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h3>Your Hand</h3>
+            <div id="hand"></div>
+          </div>
+        </div>
+
+        <!-- RIGHT COLUMN -->
+        <div>
+          <div class="panel">
+            <h3>Card Values</h3>
+            <div id="cardValues"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
